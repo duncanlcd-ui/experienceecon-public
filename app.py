@@ -36,27 +36,42 @@ except Exception:
 st.set_page_config(page_title="CX Synthetic Insights PoC", layout="wide")
 st.title("CX Synthetic Insights PoC")
 
-# ==== VECTOR INDEX (ENABLED) ====
+# ==== VECTOR INDEX (OPTIONAL & LAZY) ====
 ENABLE_VECTORS = True  # flip to False if you need to safe-boot
 
-import storage.vector_store as vstore
-col = None
+# Only import vector deps if enabled; never block other tabs
 try:
-    col = vstore.get_collection()
-    st.sidebar.success("Vector store ready")
+    import storage.vector_store as vstore  # your module
+    _VSTORE_IMPORT_OK = True
 except Exception as e:
-    st.sidebar.warning(f"Vector store unavailable: {e}")
-    col = None
+    _VSTORE_IMPORT_OK = False
+    vstore = None
+    st.sidebar.warning(f"Vector features disabled: {e}")
+
+col = None
+if ENABLE_VECTORS and _VSTORE_IMPORT_OK:
+    try:
+        col = vstore.get_collection()  # must handle internal init/lazy model load
+        st.sidebar.success("Vector store ready")
+    except Exception as e:
+        st.sidebar.warning(f"Vector store unavailable: {e}")
+        col = None
+else:
+    if not ENABLE_VECTORS:
+        st.sidebar.info("Vector features are turned off for this session.")
 
 def add_vector_index(df, dataset_id: str):
-    """Index transcripts for evidence snippets (RAG). Call AFTER NLP."""
-    if col is not None:
-        try:
-            n = vstore.upsert_embeddings(col, df, dataset_id=dataset_id)
-            st.caption(f"Vector index: added ~{n} chunks")
-        except Exception as e:
-            st.warning(f"Vector indexing skipped: {e}")
+    """Index transcripts for evidence snippets (RAG). Call AFTER NLP, and only if collection exists."""
+    if col is None:
+        st.caption("Vector index: disabled / unavailable.")
+        return
+    try:
+        n = vstore.upsert_embeddings(col, df, dataset_id=dataset_id)
+        st.caption(f"Vector index: added ~{n} chunks")
+    except Exception as e:
+        st.warning(f"Vector indexing skipped: {e}")
 # ==== END VECTOR INDEX ====
+
 
 
 # ---------- Helpers ----------
@@ -1464,447 +1479,215 @@ if pending:
 # Tab 5 (new): Market Expansion — TAM & Share Uplift (B2B2C)
 # =========================================================
 with tab_market:
-    st.subheader("Market Expansion — Wearable TAM & Share Uplift (B2B2C)")
-
-    # --- small, local helpers (avoids NameError if not defined elsewhere) ---
-    import os, json
     try:
-        import yaml  # PyYAML
-    except Exception:
-        yaml = None
+        st.subheader("Market Expansion — Wearable TAM & Share Uplift (B2B2C)")
 
-    def load_markets_yaml(path: str = "config/markets.yml") -> dict:
-        if not os.path.exists(path) or yaml is None:
-            return {}
+        # --- small, local helpers (avoids NameError if not defined elsewhere) ---
+        import os, json
         try:
-            with open(path, "r", encoding="utf-8") as f:
-                data = yaml.safe_load(f) or {}
-            return data.get("markets", {}) or {}
+            import yaml  # PyYAML
         except Exception:
-            return {}
+            yaml = None
 
-    def load_market_levers_yaml(path: str = "config/market_levers.yml") -> dict:
-        """Expected shape:
-        levers:
-          key:
-            label: "..."
-            effect_on_share_pp: [lo, hi]   # percentage points at 100% intensity
-            cost_level: "low|medium|high"  # optional
-        """
-        if not os.path.exists(path) or yaml is None:
-            return {}
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                data = yaml.safe_load(f) or {}
-            return data.get("levers", {}) or {}
-        except Exception:
-            return {}
+        def load_markets_yaml(path: str = "config/markets.yml") -> dict:
+            if not os.path.exists(path) or yaml is None:
+                return {}
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    data = yaml.safe_load(f) or {}
+                return data.get("markets", {}) or {}
+            except Exception:
+                return {}
 
-    def load_market_scenarios_yaml(path: str = "config/market_scenarios.yml") -> dict:
-        """Optional. Example:
-        scenarios:
-          Core push:
-            regions:
-              US:
-                lever_intensity:
-                  insurance_upgrade: 1.0
-                  lactation_networks: 0.7
-          """
-        if not os.path.exists(path) or yaml is None:
-            return {}
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                data = yaml.safe_load(f) or {}
-            return data.get("scenarios", {}) or {}
-        except Exception:
-            return {}
+        def load_market_levers_yaml(path: str = "config/market_levers.yml") -> dict:
+            if not os.path.exists(path) or yaml is None:
+                return {}
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    data = yaml.safe_load(f) or {}
+                return data.get("levers", {}) or {}
+            except Exception:
+                return {}
 
-    def _intensity_key(region: str, lever_key: str) -> str:
-        # state key to store 0..1 intensity
-        return f"mx_intensity::{region}::{lever_key}"
+        def load_market_scenarios_yaml(path: str = "config/market_scenarios.yml") -> dict:
+            if not os.path.exists(path) or yaml is None:
+                return {}
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    data = yaml.safe_load(f) or {}
+                return data.get("scenarios", {}) or {}
+            except Exception:
+                return {}
 
-    def _lever_effect_pp(levers_cfg: dict, lever_key: str, mode: str, intensity_0_1: float) -> float:
-        """Pick lo/typical/hi from [lo, hi] then scale by intensity (0..1)."""
-        rng = (levers_cfg.get(lever_key, {}).get("effect_on_share_pp") or [0.0, 0.0])
-        lo = float(rng[0]) if len(rng) > 0 else 0.0
-        hi = float(rng[1]) if len(rng) > 1 else lo
-        if mode == "Conservative":
-            base = lo
-        elif mode == "Aggressive":
-            base = hi
+        def _intensity_key(region: str, lever_key: str) -> str:
+            return f"mx_intensity::{region}::{lever_key}"
+
+        def _lever_effect_pp(levers_cfg: dict, lever_key: str, mode: str, intensity_0_1: float) -> float:
+            rng = (levers_cfg.get(lever_key, {}).get("effect_on_share_pp") or [0.0, 0.0])
+            lo = float(rng[0]) if len(rng) > 0 else 0.0
+            hi = float(rng[1]) if len(rng) > 1 else lo
+            if mode == "Conservative":
+                base = lo
+            elif mode == "Aggressive":
+                base = hi
+            else:
+                base = (lo + hi) / 2.0
+            intensity = max(0.0, min(1.0, float(intensity_0_1)))
+            return base * intensity  # pp
+
+        # --- load configs ---
+        markets_cfg   = load_markets_yaml("config/markets.yml")
+        levers_cfg    = load_market_levers_yaml("config/market_levers.yml")
+        scenarios_cfg = load_market_scenarios_yaml("config/market_scenarios.yml")
+
+        # Quick debug row so you know what loaded on Cloud
+        st.caption(f"Loaded: markets={len(markets_cfg)} | levers={len(levers_cfg)} | scenarios={len(scenarios_cfg)}")
+
+        if not markets_cfg:
+            st.info("No markets config found. Add **config/markets.yml** (see example in the spec).")
+            st.stop()
+
+        # --- 1) Global scenario settings ---
+        c1, c2, c3 = st.columns([1,1,2])
+        with c1:
+            s1 = st.number_input("Scenario 1: target share (%)", value=1, min_value=0, max_value=50, step=1, key="mx_s1")
+        with c2:
+            s2 = st.number_input("Scenario 2: target share (%)", value=3, min_value=0, max_value=50, step=1, key="mx_s2")
+        with c3:
+            mode = st.radio("Assumption mode (lever ranges)", ["Conservative","Typical","Aggressive"], horizontal=True, key="mx_mode")
+
+        targets = sorted({int(s1), int(s2)})
+
+        # --- 2) Regions & (optional) scenario preset ---
+        region_keys = list(markets_cfg.keys())
+        chosen_regions = st.multiselect("Regions to model", options=region_keys, default=region_keys, key="mx_regions_sel")
+
+        scenames = ["(None)"] + (list(scenarios_cfg.keys()) if scenarios_cfg else [])
+        sel_scn = st.selectbox("Load saved lever intensities (optional)", scenames, index=0, key="mx_scenario_sel")
+
+        if sel_scn != "(None)" and scenarios_cfg:
+            picked = scenarios_cfg.get(sel_scn, {}).get("regions", {})
+            for r_key, r_def in picked.items():
+                for lever_key, val in (r_def.get("lever_intensity") or {}).items():
+                    st.session_state[_intensity_key(r_key, lever_key)] = float(val)
+
+        # Early empty-state guard
+        if not chosen_regions:
+            st.warning("Select at least one region to run the model.")
+            st.stop()
+
+        # --- 3) Levers UI ---
+        if not levers_cfg:
+            st.caption("Tip: add **config/market_levers.yml** to enable lever modeling.")
         else:
-            base = (lo + hi) / 2.0
-        intensity = max(0.0, min(1.0, float(intensity_0_1)))
-        return base * intensity  # result in percentage points
+            st.markdown("### Levers (per region)")
+            for r in chosen_regions:
+                st.markdown(f"**{markets_cfg[r].get('label', r)}**")
+                cols = st.columns(3)
+                i = 0
+                for lever_key, meta in levers_cfg.items():
+                    label = meta.get("label", lever_key)
+                    help_txt = f"Effect @100%: {meta.get('effect_on_share_pp', [0,0])} pp"
+                    k = _intensity_key(r, lever_key)
+                    tmp_key = k + "::pct"
+                    cur_pct = int(round(100 * float(st.session_state.get(k, 0.0))))
+                    with cols[i % 3]:
+                        pct_val = st.slider(label, 0, 100, cur_pct, 5, help=help_txt, key=tmp_key)
+                        st.session_state[k] = pct_val / 100.0
+                    i += 1
 
-    # --- load configs ---
-    markets_cfg = load_markets_yaml("config/markets.yml")
-    levers_cfg  = load_market_levers_yaml("config/market_levers.yml")
-    scenarios_cfg = load_market_scenarios_yaml("config/market_scenarios.yml")
+        st.divider()
 
-    if not markets_cfg:
-        st.info("No markets config found. Add **config/markets.yml** to enable this view.")
-        st.stop()
+        # --- 4) Compute ---
+        import pandas as pd
+        rows_proj, rows_targets = [], []
 
-    # --- 1) Global scenario settings ---
-    c1, c2, c3 = st.columns([1,1,2])
-    with c1:
-        s1 = st.number_input("Scenario 1: target share (%)", value=1, min_value=0, max_value=50, step=1, key="mx_s1")
-    with c2:
-        s2 = st.number_input("Scenario 2: target share (%)", value=3, min_value=0, max_value=50, step=1, key="mx_s2")
-    with c3:
-        mode = st.radio("Assumption mode (for lever ranges)", ["Conservative","Typical","Aggressive"], horizontal=True, key="mx_mode")
-
-    targets = sorted({int(s1), int(s2)})
-
-    # --- 2) Regions & (optional) scenario preset to prefill intensities ---
-    region_keys = list(markets_cfg.keys())
-    chosen_regions = st.multiselect("Regions to model", options=region_keys, default=region_keys, key="mx_regions_sel")
-
-    scenames = ["(None)"] + (list(scenarios_cfg.keys()) if scenarios_cfg else [])
-    sel_scn = st.selectbox("Load saved lever intensities (optional)", scenames, index=0)
-
-    if sel_scn != "(None)" and scenarios_cfg:
-        picked = scenarios_cfg.get(sel_scn, {}).get("regions", {})
-        for r_key, r_def in picked.items():
-            for lever_key, val in (r_def.get("lever_intensity") or {}).items():
-                st.session_state[_intensity_key(r_key, lever_key)] = float(val)
-
-    # --- 3) Levers UI (per region, 0..100%; stored as 0..1) ---
-    if not levers_cfg:
-        st.caption("Tip: create **config/market_levers.yml** to enable lever modeling.")
-    else:
-        st.markdown("### Levers (per region)")
         for r in chosen_regions:
-            st.markdown(f"**{markets_cfg[r].get('label', r)}**")
-            cols = st.columns(3)
-            i = 0
-            for lever_key, meta in levers_cfg.items():
-                label = meta.get("label", lever_key)
-                help_txt = f"Effect range @100%: {meta.get('effect_on_share_pp', [0,0])} pp"
-                k = _intensity_key(r, lever_key)
-                # slider key must be unique; use a visible slider bound to a temp key; write back to k (0..1)
-                tmp_key = k + "::pct"
-                cur_pct = int(round(100 * float(st.session_state.get(k, 0.0))))
-                with cols[i % 3]:
-                    pct_val = st.slider(label, 0, 100, cur_pct, 5, help=help_txt, key=tmp_key)
-                    st.session_state[k] = pct_val / 100.0
-                i += 1
+            m = markets_cfg[r]
+            label = m.get("label", r)
+            currency = m.get("currency", "USD")
+            tam = float(m.get("wearable_tam", 0.0))
+            reachable_pct = float(m.get("reachable_pct", 1.0))
+            baseline_share = float(m.get("baseline_share_pct", 0.0))
+            gm_pct = float(m.get("gross_margin_pct", 0.0))
 
-    st.divider()
+            reachable_rev = tam * reachable_pct
+            base_rev = reachable_rev * (baseline_share / 100.0)
+            base_gp = base_rev * gm_pct
 
-    # --- 4) Compute lever-driven projection AND simple target-share table ---
-    import pandas as pd
+            uplift_pp = 0.0
+            for lever_key in levers_cfg.keys():
+                intensity = float(st.session_state.get(_intensity_key(r, lever_key), 0.0))
+                uplift_pp += _lever_effect_pp(levers_cfg, lever_key, mode, intensity)
 
-    rows_proj = []
-    rows_targets = []
+            projected_share = max(0.0, baseline_share + uplift_pp)
+            proj_rev = reachable_rev * (projected_share / 100.0)
+            proj_gp = proj_rev * gm_pct
 
-    for r in chosen_regions:
-        m = markets_cfg[r]
-        label = m.get("label", r)
-        currency = m.get("currency", "USD")
-        tam = float(m.get("wearable_tam", 0.0))
-        reachable_pct = float(m.get("reachable_pct", 1.0))
-        baseline_share = float(m.get("baseline_share_pct", 0.0))  # percentage points
-        gm_pct = float(m.get("gross_margin_pct", 0.0))
-
-        reachable_rev = tam * reachable_pct
-        base_rev = reachable_rev * (baseline_share / 100.0)
-        base_gp = base_rev * gm_pct
-
-        # lever-driven uplift
-        uplift_pp = 0.0
-        for lever_key in levers_cfg.keys():
-            intensity = float(st.session_state.get(_intensity_key(r, lever_key), 0.0))
-            uplift_pp += _lever_effect_pp(levers_cfg, lever_key, mode, intensity)
-
-        projected_share = max(0.0, baseline_share + uplift_pp)
-        proj_rev = reachable_rev * (projected_share / 100.0)
-        proj_gp = proj_rev * gm_pct
-
-        rows_proj.append({
-            "Region": label,
-            "Currency": currency,
-            "Baseline_share_pct": baseline_share,
-            "Projected_share_pct": projected_share,
-            "Reachable_TAM": reachable_rev,
-            "Baseline_revenue": base_rev,
-            "Projected_revenue": proj_rev,
-            "Incremental_revenue": proj_rev - base_rev,
-            "Baseline_gross_profit": base_gp,
-            "Projected_gross_profit": proj_gp,
-            "Incremental_gross_profit": proj_gp - base_gp,
-            "Assumption_mode": mode,
-        })
-
-        # simple target-share scenarios (independent of levers)
-        for t in targets:
-            t_share = float(t)
-            t_rev = reachable_rev * (t_share / 100.0)
-            t_gp  = t_rev * gm_pct
-            rows_targets.append({
+            rows_proj.append({
                 "Region": label,
                 "Currency": currency,
                 "Baseline_share_pct": baseline_share,
-                "Target_share_pct": t_share,
+                "Projected_share_pct": projected_share,
                 "Reachable_TAM": reachable_rev,
                 "Baseline_revenue": base_rev,
-                "Target_revenue": t_rev,
-                "Incremental_revenue": t_rev - base_rev,
-                "Incremental_gross_profit": t_gp - base_gp,
+                "Projected_revenue": proj_rev,
+                "Incremental_revenue": proj_rev - base_rev,
+                "Baseline_gross_profit": base_gp,
+                "Projected_gross_profit": proj_gp,
+                "Incremental_gross_profit": proj_gp - base_gp,
+                "Assumption_mode": mode,
             })
 
-    # --- 5) Render tables + summaries ---
-    def _money(x):
-        try: return f"{x:,.0f}"
-        except: return x
+            for t in targets:
+                t_share = float(t)
+                t_rev = reachable_rev * (t_share / 100.0)
+                t_gp  = t_rev * gm_pct
+                rows_targets.append({
+                    "Region": label,
+                    "Currency": currency,
+                    "Baseline_share_pct": baseline_share,
+                    "Target_share_pct": t_share,
+                    "Reachable_TAM": reachable_rev,
+                    "Baseline_revenue": base_rev,
+                    "Target_revenue": t_rev,
+                    "Incremental_revenue": t_rev - base_rev,
+                    "Incremental_gross_profit": t_gp - base_gp,
+                })
 
-    # (A) Lever-driven projection
-    proj_df = pd.DataFrame(rows_proj)
-    if not proj_df.empty:
-        view = proj_df.copy()
-        for coln in ["Reachable_TAM","Baseline_revenue","Projected_revenue",
-                     "Incremental_revenue","Baseline_gross_profit",
-                     "Projected_gross_profit","Incremental_gross_profit"]:
-            view[coln] = view[coln].apply(_money)
-        st.markdown("### Lever-driven Projection (with Conservative/Typical/Aggressive selection)")
-        st.dataframe(
-            view[["Region","Currency","Assumption_mode",
-                  "Baseline_share_pct","Projected_share_pct",
-                  "Baseline_revenue","Projected_revenue","Incremental_revenue","Incremental_gross_profit"]],
-            use_container_width=True
-        )
+        # --- 5) Render ---
+        def _money(x):
+            try: return f"{x:,.0f}"
+            except: return x
 
-    # (B) Simple target-share scenarios (1% / 3% etc.)
-    targ_df = pd.DataFrame(rows_targets)
-    if not targ_df.empty:
-        view2 = targ_df.copy()
-        for coln in ["Reachable_TAM","Baseline_revenue","Target_revenue",
-                     "Incremental_revenue","Incremental_gross_profit"]:
-            view2[coln] = view2[coln].apply(_money)
-        st.markdown("### TAM & Share Scenarios (independent of levers)")
-        st.dataframe(
-            view2[["Region","Currency","Baseline_share_pct","Target_share_pct",
-                   "Reachable_TAM","Baseline_revenue","Target_revenue",
-                   "Incremental_revenue","Incremental_gross_profit"]],
-            use_container_width=True
-        )
+        proj_df = pd.DataFrame(rows_proj)
+        targ_df = pd.DataFrame(rows_targets)
 
-    # (C) Short narrative per region (lever-driven)
-    if not proj_df.empty:
-        st.markdown("### Summary by Region (lever-driven)")
-        for _, row in proj_df.sort_values("Region").iterrows():
-            st.write(
-                f"**{row['Region']}** — Mode: **{row['Assumption_mode']}** · "
-                f"Projected share: **{row['Projected_share_pct']:.2f}%** "
-                f"(baseline {row['Baseline_share_pct']:.2f}%). "
-                f"Incremental revenue ≈ {_money(row['Incremental_revenue'])} {row['Currency']} "
-                f"(GP ≈ {_money(row['Incremental_gross_profit'])})."
+        if proj_df.empty and targ_df.empty:
+            st.info("No rows to display yet. Check your regions and lever selections.")
+            st.stop()
+
+        if not proj_df.empty:
+            view = proj_df.copy()
+            for c in ["Reachable_TAM","Baseline_revenue","Projected_revenue",
+                      "Incremental_revenue","Baseline_gross_profit",
+                      "Projected_gross_profit","Incremental_gross_profit"]:
+                view[c] = view[c].apply(_money)
+            st.markdown("### Lever-driven Projection")
+            st.dataframe(
+                view[["Region","Currency","Assumption_mode",
+                      "Baseline_share_pct","Projected_share_pct",
+                      "Baseline_revenue","Projected_revenue",
+                      "Incremental_revenue","Incremental_gross_profit"]],
+                use_container_width=True
             )
 
+        if not targ_df.empty:
+            view2 = targ_df.copy()
+            for c in ["Reachable_TAM","Baseline_revenue","Target_revenue",
+                      "Incremental_revenue","Incremental_gross_profit"]:
+                view2[c] = view2[c].apply(_money)
+            st.markdown("### TAM & Share Scenarios (independent of levers)")
+            st.dataframe(
+                view2[["Region","Currency","Baseline_share_pct","Target_share_pct",]()]()
 
-
-# =========================================================
-# Tab 5: Playbook — Core-8 levers → actions → ROI mapping
-# =========================================================
-with tab_playbook:
-    st.subheader("Core-8 Playbook — Actions by Lever")
-
-    import json, os
-
-# --- Actions Playbook loader (tolerant) ---
-import os, json, re
-try:
-    import yaml  # fallback for JSON with comments / trailing commas
-except Exception:
-    yaml = None
-
-_CONTROL_CHARS = re.compile(r'[\x00-\x08\x0b\x0c\x0e-\x1f]')
-
-def _parse_actions_text(text: str):
-    # 1) strict JSON
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        pass
-    # 2) sanitize control chars, try JSON again
-    cleaned = _CONTROL_CHARS.sub(" ", text)
-    try:
-        return json.loads(cleaned)
-    except json.JSONDecodeError:
-        pass
-    # 3) YAML/JSON5-ish fallback (allows comments, trailing commas)
-    if yaml is not None:
-        try:
-            yobj = yaml.safe_load(cleaned)
-            if isinstance(yobj, dict) and "levers" in yobj:
-                return yobj
-        except Exception:
-            pass
-    return None
-
-def load_actions_json(path: str = "config/actions.json", raw_text: str | None = None):
-    """Load actions from file OR a raw text string (e.g., uploaded)."""
-    if raw_text is not None:
-        return _parse_actions_text(raw_text)
-    if not os.path.exists(path):
-        return None
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            txt = f.read()
-        return _parse_actions_text(txt)
-    except Exception as e:
-        st.error(f"Could not read {path}: {e}")
-        return None
-
-# --- UI: upload or read from disk ---
-up = st.file_uploader("Upload actions JSON/YAML (optional)", type=["json","yaml","yml"], key="playbook_json_up")
-actions_data = None
-
-if up is not None:
-    try:
-        raw = up.read().decode("utf-8", errors="replace")
-        actions_data = load_actions_json(raw_text=raw)
-        if actions_data:
-            st.success("Loaded actions from uploaded file (not saved to disk).")
-        else:
-            st.error("Upload parsed, but structure wasn’t recognized. Expect a dict with a top-level 'levers' key.")
-    except Exception as e:
-        st.error(f"Upload parse failed: {e}")
-
-if actions_data is None:
-    actions_data = load_actions_json("config/actions.json")
-    if actions_data is None:
-        st.info("No actions file found. Save your playbook to **config/actions.json** or upload one above.")
-        st.stop()
-
-# Optional: quick peek
-with st.expander("Peek actions (debug)", expanded=False):
-    try:
-        st.json(actions_data)
-    except Exception:
-        st.write(actions_data)
-
-
-    # --- Simple selector to view by lever
-    levers = [l["name"] for l in actions_data.get("levers", [])]
-    if not levers:
-        st.warning("No `levers` found in JSON.")
-        st.stop()
-
-    lever_name = st.selectbox("Choose lever", levers, key="playbook_lever_sel")
-    lever = next((l for l in actions_data["levers"] if l["name"] == lever_name), None)
-
-    if not lever:
-        st.warning("Lever not found in JSON.")
-        st.stop()
-
-    st.markdown(f"### {lever['name']}")
-    st.caption("Pick relevant actions below. Then set the **numeric effect** to pass into the ROI tab.")
-
-    # Render categories & actions as checklists
-    def _safe_key(*parts):
-        # Streamlit widget keys must be stable and ascii-ish
-        return ("_".join(str(p) for p in parts)).replace(" ", "_").replace("/", "_")
-
-    chosen_actions = []
-
-    for cat in lever.get("categories", []):
-        with st.expander(f"**{cat.get('category','(Category)')}** — {cat.get('financialImpact','')}", expanded=True):
-            if "expectedLift" in cat:
-                st.caption(f"Expected lift: {cat['expectedLift']}")
-            for a in cat.get("actions", []):
-                ck_key = _safe_key("ck", lever_name, cat.get("category",""), a)
-                if st.checkbox(a, key=ck_key):
-                    chosen_actions.append(a)
-
-    # --- Notes (set default BEFORE creating the widget) ---
-    notes_key = _safe_key("notes", lever_name)
-    if notes_key not in st.session_state:
-        # optional default; keep empty if you prefer: ""
-        st.session_state[notes_key] = "Context / evidence for this lever…"
-
-    st.text_area("Notes (optional)", value=st.session_state[notes_key], key=notes_key)
-    notes_val = st.session_state[notes_key]  # read current value if needed later
-
-    # We present only the controls that are relevant to the selected lever
-    if "Average Spend per Visit" in lever_name or "AOV" in lever_name:
-        st.markdown("**Lever 1 — AOV**")
-        aov_mode_choice = st.radio("Model AOV via…", ["Direct % AOV lift", "Attach-rate × Add-on value"], horizontal=True)
-        if aov_mode_choice == "Direct % AOV lift":
-            aov_delta_pct_new = st.slider("Δ AOV (%)", 0, 25, 5, 1, help="Percent increase to Avg Ticket")
-            attach_rate_delta_pct_new = 0
-            avg_addon_value_new = float(st.session_state.get("avg_addon_value", 120.0))
-            push_payload = dict(aov_delta_pct=aov_delta_pct_new)
-            # Hint: also flip the ROI tab’s radio
-            st.session_state["aov_mode_key"] = "Direct AOV increase (%)"
-        else:
-            attach_rate_delta_pct_new = st.slider("Δ attach rate (pp)", -20, 40, 5, 1)
-            avg_addon_value_new = st.number_input("Avg add-on value (CAD)", value=float(st.session_state.get("avg_addon_value", 120.0)), step=10.0)
-            aov_delta_pct_new = 0
-            push_payload = dict(attach_rate_delta_pct=attach_rate_delta_pct_new, avg_addon_value=avg_addon_value_new)
-            st.session_state["aov_mode_key"] = "Model via add-ons in Lever 4"
-
-    elif "Visit Frequency" in lever_name:
-        st.markdown("**Lever 2 — Visit Frequency**")
-        visit_freq_delta_pct_new = st.slider("Δ visit frequency (scheduled visits %)", -10, 30, 5, 1)
-        push_payload = dict(visit_freq_delta_pct=visit_freq_delta_pct_new)
-
-    elif "New Customer Conversion" in lever_name:
-        st.markdown("**Lever 3 — New Customer Conversion**")
-        d_conv_pp_new = st.slider("Δ conversion (pp)", -20, 20, 5, 1)
-        push_payload = dict(d_conv_pp=d_conv_pp_new)
-
-    elif "Upsell" in lever_name or "Cross-sell" in lever_name:
-        st.markdown("**Lever 4 — Upsell / Cross-sell**")
-        attach_rate_delta_pct_new = st.slider("Δ attach rate (pp)", -20, 40, 5, 1)
-        avg_addon_value_new = st.number_input("Avg add-on value (CAD)", value=float(st.session_state.get("avg_addon_value", 120.0)), step=10.0)
-        push_payload = dict(attach_rate_delta_pct=attach_rate_delta_pct_new, avg_addon_value=avg_addon_value_new)
-
-    elif "No-Show" in lever_name:
-        st.markdown("**Lever 5 — No-Show Reduction**")
-        d_no_show_pp_new = st.slider("Δ no-show (pp)", -40, 40, -5, 1, help="Use negative to reduce no-show")
-        push_payload = dict(d_no_show_pp=d_no_show_pp_new)
-
-    elif "Retention" in lever_name or "Repeat Rate" in lever_name:
-        st.markdown("**Lever 6 — Retention / Repeat**")
-        csat_delta_new = st.number_input("CSAT delta (Δ from baseline)", value=float(st.session_state.get("csat_delta", 0.10)), step=0.05)
-        push_payload = dict(csat_delta=csat_delta_new)
-
-    elif "Productivity" in lever_name or "Utilization" in lever_name:
-        st.markdown("**Lever 7 — Staff Productivity / Utilization**")
-        d_handle_time_min_new = st.number_input("Δ handle-time per visit (minutes)", value=int(st.session_state.get("d_handle_time_min", 3)), step=1)
-        d_rework_pp_new       = st.slider("Δ rework rate (pp)", -30, 30, -5, 1)
-        fill_rate_pct_new     = st.slider("Capacity fill rate for recovered minutes (%)", 0, 100, int(st.session_state.get("fill_rate_pct", 60)), 5)
-        push_payload = dict(d_handle_time_min=d_handle_time_min_new, d_rework_pp=d_rework_pp_new, fill_rate_pct=fill_rate_pct_new)
-
-    elif "Review" in lever_name or "Reputation" in lever_name:
-        st.markdown("**Lever 8 — Reviews / Reputation**")
-        st.info("Not yet wired to CAC/ROAS in the ROI model. (Planned: star rating → lower CAC / higher organic.)")
-        push_payload = {}
-
-    else:
-        st.info("This lever is not mapped yet.")
-        push_payload = {}
-
-    st.divider()
-    colL, colR = st.columns([2,1])
-    with colL:
-        st.write("**Selected actions**")
-        if chosen_actions:
-            for a in chosen_actions:
-                st.write(f"• {a}")
-        else:
-            st.caption("_No actions selected yet._")
-    with colR:
-        if st.button("➜ Send to ROI (Tab 4)"):
-            # Push any fields we set into session_state so Tab 4 picks them up
-            for k, v in push_payload.items():
-                st.session_state[k] = v
-            # Also keep your notes around
-            st.session_state[f"playbook_push_{lever_name}"] = {
-                "actions": chosen_actions,
-                "notes": st.session_state.get(notes_key, ""),
-                "payload": push_payload,
-            }
-            st.success("Sent to ROI. Switch to **Business Case** to see the impact.")
