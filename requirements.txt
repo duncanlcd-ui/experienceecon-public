@@ -36,3 +36,16 @@ sentence-transformers==2.6.1
 # If logs still complain about torch wheels, uncomment the two lines below:
 # --extra-index-url https://download.pytorch.org/whl/cpu
 # torch==2.4.1+cpu
+# Core
+streamlit>=1.36
+pandas
+pyyaml
+python-docx
+
+# Vector / NLP (safe CPU-only)
+chromadb
+faiss-cpu
+sentence-transformers==2.6.1
+# If logs still complain about torch wheels, uncomment the two lines below:
+# --extra-index-url https://download.pytorch.org/whl/cpu
+# torch==2.4.1+cpu
