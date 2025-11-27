@@ -6,3 +6,7 @@ sqlalchemy>=2.0
 python-docx>=1.1
 scikit-learn>=1.4
 chromadb>=0.5
+# NLP / embeddings
+sentence-transformers==2.6.1
+# If the deploy fails complaining about torch, add the next line too:
+# torch==2.4.1
