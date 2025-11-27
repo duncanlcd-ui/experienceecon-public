@@ -1,0 +1,42 @@
+# config/solutions.yml
+- name: "AOV: Premium consult flow"
+  notes: "Improve consult quality, menu design; direct AOV uplift"
+  levers:
+    aov_delta_pct: 6              # Lever 1 (Direct AOV %)
+
+- name: "AOV via Upsell: Add-on playbook"
+  notes: "Attach-rate playbook (bundles, visual aids)"
+  levers:
+    attach_rate_delta_pp: 6       # Lever 4
+    avg_addon_value: 120          # CAD
+
+- name: "Visit Frequency: Pre-booking & plans"
+  notes: "Treatment plans + pre-booking + reminders"
+  levers:
+    visit_freq_delta_pct: 10      # Lever 2
+
+- name: "Conversion: Faster lead response"
+  notes: "SLA <15m; tighten booking UX"
+  levers:
+    d_conv_pp: 6                  # Lever 3
+
+- name: "No-show: Deposits + SMS reminders"
+  notes: "Deposit policy, reminders, clearly stated terms"
+  levers:
+    d_no_show_pp: -4              # Lever 5 (negative = reduction)
+
+- name: "Retention: Aftercare + membership"
+  notes: "Follow-up education, membership nudges"
+  levers:
+    csat_delta: 0.15              # Lever 6 (uses your CSAT→retention elasticity)
+
+- name: "Productivity: Scheduling + task shifting"
+  notes: "Reduce handle-time, cut rework, raise fill rate"
+  levers:
+    d_handle_time_min: 3          # Lever 7
+    d_rework_pp: -4
+    fill_rate_pct: 70
+
+- name: "Reviews: Review prompt engine"
+  notes: "Auto prompts + recovery steps (placeholder for CAC tie-in)"
+  levers: {}

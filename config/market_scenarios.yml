@@ -1,0 +1,16 @@
+scenarios:
+  "US: Insurance + LC push":
+    regions:
+      US:
+        lever_intensity:
+          insurance_upgrade: 1.0
+          lactation_networks: 0.8
+          retail_activation_target: 0.6
+          mom_communities: 0.6
+  "Canada: Retail + Registries":
+    regions:
+      Canada:
+        lever_intensity:
+          retail_activation_target: 0.7
+          baby_registries: 0.9
+          pumpfluencers: 0.5

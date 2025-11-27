@@ -1,0 +1,50 @@
+levers:
+  insurance_upgrade:
+    label: "Insurance upgrade pathway (coverage / reimbursement)"
+    effect_on_share_pp: [0.5, 1.0]   # min..max pp at full execution
+    cost_level: "high"
+
+  dme_partnerships:
+    label: "DME partnerships (distribution / claims handling)"
+    effect_on_share_pp: [0.3, 0.8]
+    cost_level: "medium"
+
+  lactation_networks:
+    label: "Lactation consultant network endorsements"
+    effect_on_share_pp: [0.3, 0.7]
+    cost_level: "medium"
+
+  hospital_onboarding:
+    label: "Hospital onboarding & clinician advocacy"
+    effect_on_share_pp: [0.3, 0.8]
+    cost_level: "high"
+
+  mom_communities:
+    label: "Mom communities & peer referrals"
+    effect_on_share_pp: [0.2, 0.5]
+    cost_level: "low"
+
+  baby_registries:
+    label: "Baby registries (Babylist / Amazon / Target)"
+    effect_on_share_pp: [0.2, 0.6]
+    cost_level: "medium"
+
+  pumpfluencers:
+    label: "Influencers (trust-based education, comparisons)"
+    effect_on_share_pp: [0.2, 0.6]
+    cost_level: "medium"
+
+  employer_benefits:
+    label: "Employer benefits & HR programs"
+    effect_on_share_pp: [0.2, 0.6]
+    cost_level: "medium"
+
+  retail_activation_target:
+    label: "Retail activation (Target / planogram / in-aisle)"
+    effect_on_share_pp: [0.2, 0.6]
+    cost_level: "medium"
+
+  direct_dtc_awareness:
+    label: "Direct-to-consumer awareness (paid + organic)"
+    effect_on_share_pp: [0.2, 0.5]
+    cost_level: "medium"

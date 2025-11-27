@@ -1,0 +1,19 @@
+# Left side are the platform’s canonical fields
+# Right side are the column names in YOUR CSV/JSON
+customer_id: customer_id        # e.g. patient_id
+interaction_id: interaction_id  # e.g. encounter_id
+stage: stage                    # e.g. journey_stage
+channel: channel                # e.g. source_channel
+occurred_at: occurred_at        # e.g. timestamp
+csat: csat                      # e.g. survey_score
+wait_minutes: wait_minutes      # e.g. wait_time_min
+text: text                      # e.g. note, transcript, feedback
+
+customer_id: patient_id
+interaction_id: encounter_id
+stage: journey_stage
+channel: source
+occurred_at: timestamp
+csat: survey_score
+wait_minutes: wait_time_min
+text: feedback_text

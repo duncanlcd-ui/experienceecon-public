@@ -1,0 +1,8 @@
+trackA:
+  csat_to_retention_elasticity: 0.12
+  conversion_uplift_per_action: 0.03
+trackB:
+  waittime_to_throughput: 0.25
+  staffing_cost_per_fte: 78000
+common:
+  discount_rate: 0.12
