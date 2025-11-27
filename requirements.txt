@@ -10,3 +10,16 @@ chromadb>=0.5
 sentence-transformers==2.6.1
 # If the deploy fails complaining about torch, add the next line too:
 # torch==2.4.1
+# Core
+streamlit>=1.36
+pandas
+pyyaml
+python-docx
+
+# Vector / NLP
+chromadb
+faiss-cpu
+sentence-transformers==2.6.1
+# If it later complains about torch wheels, use CPU wheel:
+# --extra-index-url https://download.pytorch.org/whl/cpu
+# torch==2.4.1+cpu
