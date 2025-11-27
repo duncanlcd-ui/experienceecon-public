@@ -1477,7 +1477,7 @@ if pending:
 # Tab 5 (new): Market Expansion — TAM & Share Uplift (B2B2C)
 # =========================================================
 with tab_market:
-    # --- DEBUG header for Market tab: paste right after `with tab_market:` ---
+    # --- DEBUG loader (single source of truth) ---
     import os, json, glob
     try:
         import yaml  # PyYAML
@@ -1486,273 +1486,200 @@ with tab_market:
         yaml = None
         _yaml_ok = False
 
-    def _dbg_len(x):
-        try:
-            return len(x)
-        except Exception:
-            return "n/a"
-
-    def _load_yaml(path):
+    def _safe_load(path):
         try:
             with open(path, "r", encoding="utf-8") as f:
                 return yaml.safe_load(f) if yaml else None
         except Exception as e:
-            return f"ERROR: {e}"
+            return {"__error__": str(e)}
 
-    markets_raw   = _load_yaml("config/markets.yml")
-    levers_raw    = _load_yaml("config/market_levers.yml")
-    scenarios_raw = _load_yaml("config/market_scenarios.yml")
+    raw_markets   = _safe_load("config/markets.yml")
+    raw_levers    = _safe_load("config/market_levers.yml")
+    raw_scenarios = _safe_load("config/market_scenarios.yml")
 
-    # normalize to the dicts your tab expects
-    markets_cfg   = (markets_raw or {}).get("markets", {}) if isinstance(markets_raw, dict) else {}
-    levers_cfg    = (levers_raw or {}).get("levers", {})   if isinstance(levers_raw, dict)  else {}
-    scenarios_cfg = (scenarios_raw or {}).get("scenarios", {}) if isinstance(scenarios_raw, dict) else {}
+    markets_cfg   = (raw_markets or {}).get("markets", {}) if isinstance(raw_markets, dict) else {}
+    levers_cfg    = (raw_levers or {}).get("levers", {})   if isinstance(raw_levers, dict)  else {}
+    scenarios_cfg = (raw_scenarios or {}).get("scenarios", {}) if isinstance(raw_scenarios, dict) else {}
 
     st.caption(
         f"[MarketTab Debug] yaml_ok={_yaml_ok} • "
-        f"markets_type={type(markets_raw).__name__} • levers_type={type(levers_raw).__name__} • "
-        f"counts: markets={_dbg_len(markets_cfg)} levers={_dbg_len(levers_cfg)} scenarios={_dbg_len(scenarios_cfg)}"
+        f"files: {', '.join(sorted(glob.glob('config/*.y*ml')) or ['(none)'])} • "
+        f"counts: markets={len(markets_cfg)} levers={len(levers_cfg)} scenarios={len(scenarios_cfg)}"
     )
-    try:
-        st.caption("Repo paths present: " + ", ".join(sorted(glob.glob("config/*.y*ml")) or ["(none)"]))
-    except Exception:
-        pass
-    # --- END DEBUG header ---
 
-    # (…keep your existing Tab 5 UI/compute/render code here, but
-    #    do NOT re-load or overwrite markets_cfg/levers_cfg/scenarios_cfg)
+    # If no markets, show hint and exit the tab
+    if not markets_cfg:
+        st.info("No markets config found. Add **config/markets.yml**.")
+        st.stop()
 
-    try:
-        st.subheader("Market Expansion — Wearable TAM & Share Uplift (B2B2C)")
+    # ---------- UI ----------
+    st.subheader("Market Expansion — Wearable TAM & Share Uplift (B2B2C)")
 
-        # --- small, local helpers (keeps this tab self-contained) ---
-        import os, json
-        try:
-            import yaml  # PyYAML
-        except Exception:
-            yaml = None
+    def _intensity_key(region: str, lever_key: str) -> str:
+        return f"mx_intensity::{region}::{lever_key}"
 
-        def load_markets_yaml(path: str = "config/markets.yml") -> dict:
-            if not os.path.exists(path) or yaml is None:
-                return {}
-            try:
-                with open(path, "r", encoding="utf-8") as f:
-                    data = yaml.safe_load(f) or {}
-                return data.get("markets", {}) or {}
-            except Exception:
-                return {}
+    def _lever_effect_pp(levers_cfg: dict, lever_key: str, mode: str, intensity_0_1: float) -> float:
+        rng = (levers_cfg.get(lever_key, {}).get("effect_on_share_pp") or [0.0, 0.0])
+        lo = float(rng[0]) if len(rng) else 0.0
+        hi = float(rng[1]) if len(rng) > 1 else lo
+        base = lo if mode == "Conservative" else hi if mode == "Aggressive" else (lo + hi) / 2.0
+        intensity = max(0.0, min(1.0, float(intensity_0_1)))
+        return base * intensity  # pp
 
-        def load_market_levers_yaml(path: str = "config/market_levers.yml") -> dict:
-            if not os.path.exists(path) or yaml is None:
-                return {}
-            try:
-                with open(path, "r", encoding="utf-8") as f:
-                    data = yaml.safe_load(f) or {}
-                return data.get("levers", {}) or {}
-            except Exception:
-                return {}
+    # 1) Global settings
+    c1, c2, c3 = st.columns([1, 1, 2])
+    with c1:
+        s1 = st.number_input("Scenario 1: target share (%)", value=1, min_value=0, max_value=50, step=1, key="mx_s1")
+    with c2:
+        s2 = st.number_input("Scenario 2: target share (%)", value=3, min_value=0, max_value=50, step=1, key="mx_s2")
+    with c3:
+        mode = st.radio("Assumption mode (lever ranges)", ["Conservative", "Typical", "Aggressive"], horizontal=True, key="mx_mode")
+    targets = sorted({int(s1), int(s2)})
 
-        def load_market_scenarios_yaml(path: str = "config/market_scenarios.yml") -> dict:
-            if not os.path.exists(path) or yaml is None:
-                return {}
-            try:
-                with open(path, "r", encoding="utf-8") as f:
-                    data = yaml.safe_load(f) or {}
-                return data.get("scenarios", {}) or {}
-            except Exception:
-                return {}
+    # 2) Regions & optional scenario preset
+    region_keys = list(markets_cfg.keys())
+    chosen_regions = st.multiselect("Regions to model", options=region_keys, default=region_keys, key="mx_regions_sel")
 
-        def _intensity_key(region: str, lever_key: str) -> str:
-            return f"mx_intensity::{region}::{lever_key}"
+    scenames = ["(None)"] + (list(scenarios_cfg.keys()) if scenarios_cfg else [])
+    sel_scn = st.selectbox("Load saved lever intensities (optional)", scenames, index=0, key="mx_scenario_sel")
+    if sel_scn != "(None)" and scenarios_cfg:
+        picked = scenarios_cfg.get(sel_scn, {}).get("regions", {})
+        for r_key, r_def in picked.items():
+            for lever_key, val in (r_def.get("lever_intensity") or {}).items():
+                st.session_state[_intensity_key(r_key, lever_key)] = float(val)
 
-        def _lever_effect_pp(levers_cfg: dict, lever_key: str, mode: str, intensity_0_1: float) -> float:
-            rng = (levers_cfg.get(lever_key, {}).get("effect_on_share_pp") or [0.0, 0.0])
-            lo = float(rng[0]) if len(rng) > 0 else 0.0
-            hi = float(rng[1]) if len(rng) > 1 else lo
-            if mode == "Conservative":
-                base = lo
-            elif mode == "Aggressive":
-                base = hi
-            else:
-                base = (lo + hi) / 2.0
-            intensity = max(0.0, min(1.0, float(intensity_0_1)))
-            return base * intensity  # percentage points
+    if not chosen_regions:
+        st.warning("Select at least one region to run the model.")
+        st.stop()
 
-        # --- load configs ---
-        markets_cfg   = load_markets_yaml("config/markets.yml")
-        levers_cfg    = load_market_levers_yaml("config/market_levers.yml")
-        scenarios_cfg = load_market_scenarios_yaml("config/market_scenarios.yml")
-
-        st.caption(f"Loaded: markets={len(markets_cfg)} | levers={len(levers_cfg)} | scenarios={len(scenarios_cfg)}")
-
-        if not markets_cfg:
-            st.info("No markets config found. Add **config/markets.yml** (see example in the spec).")
-            st.stop()
-
-        # --- 1) Global scenario settings ---
-        c1, c2, c3 = st.columns([1,1,2])
-        with c1:
-            s1 = st.number_input("Scenario 1: target share (%)", value=1, min_value=0, max_value=50, step=1, key="mx_s1")
-        with c2:
-            s2 = st.number_input("Scenario 2: target share (%)", value=3, min_value=0, max_value=50, step=1, key="mx_s2")
-        with c3:
-            mode = st.radio("Assumption mode (lever ranges)", ["Conservative","Typical","Aggressive"], horizontal=True, key="mx_mode")
-
-        targets = sorted({int(s1), int(s2)})
-
-        # --- 2) Regions & scenario preset ---
-        region_keys = list(markets_cfg.keys())
-        chosen_regions = st.multiselect("Regions to model", options=region_keys, default=region_keys, key="mx_regions_sel")
-
-        scenames = ["(None)"] + (list(scenarios_cfg.keys()) if scenarios_cfg else [])
-        sel_scn = st.selectbox("Load saved lever intensities (optional)", scenames, index=0, key="mx_scenario_sel")
-
-        if sel_scn != "(None)" and scenarios_cfg:
-            picked = scenarios_cfg.get(sel_scn, {}).get("regions", {})
-            for r_key, r_def in picked.items():
-                for lever_key, val in (r_def.get("lever_intensity") or {}).items():
-                    st.session_state[_intensity_key(r_key, lever_key)] = float(val)
-
-        if not chosen_regions:
-            st.warning("Select at least one region to run the model.")
-            st.stop()
-
-        # --- 3) Levers UI ---
-        if not levers_cfg:
-            st.caption("Tip: add **config/market_levers.yml** to enable lever modeling.")
-        else:
-            st.markdown("### Levers (per region)")
-            for r in chosen_regions:
-                st.markdown(f"**{markets_cfg[r].get('label', r)}**")
-                cols = st.columns(3)
-                i = 0
-                for lever_key, meta in levers_cfg.items():
-                    label = meta.get("label", lever_key)
-                    help_txt = f"Effect @100%: {meta.get('effect_on_share_pp', [0,0])} pp"
-                    k = _intensity_key(r, lever_key)
-                    tmp_key = k + "::pct"
-                    cur_pct = int(round(100 * float(st.session_state.get(k, 0.0))))
-                    with cols[i % 3]:
-                        pct_val = st.slider(label, 0, 100, cur_pct, 5, help=help_txt, key=tmp_key)
-                        st.session_state[k] = pct_val / 100.0
-                    i += 1
-
-        st.divider()
-
-        # --- 4) Compute ---
-        import pandas as pd
-        rows_proj, rows_targets = [], []
-
+    # 3) Levers UI
+    if not levers_cfg:
+        st.caption("Tip: add **config/market_levers.yml** to enable lever modeling.")
+    else:
+        st.markdown("### Levers (per region)")
         for r in chosen_regions:
-            m = markets_cfg[r]
-            label = m.get("label", r)
-            currency = m.get("currency", "USD")
-            tam = float(m.get("wearable_tam", 0.0))
-            reachable_pct = float(m.get("reachable_pct", 1.0))
-            baseline_share = float(m.get("baseline_share_pct", 0.0))
-            gm_pct = float(m.get("gross_margin_pct", 0.0))
+            st.markdown(f"**{markets_cfg[r].get('label', r)}**")
+            cols = st.columns(3)
+            i = 0
+            for lever_key, meta in levers_cfg.items():
+                label = meta.get("label", lever_key)
+                help_txt = f"Effect @100%: {meta.get('effect_on_share_pp', [0,0])} pp"
+                k = _intensity_key(r, lever_key)
+                tmp_key = k + "::pct"
+                cur_pct = int(round(100 * float(st.session_state.get(k, 0.0))))
+                with cols[i % 3]:
+                    pct_val = st.slider(label, 0, 100, cur_pct, 5, help=help_txt, key=tmp_key)
+                    st.session_state[k] = pct_val / 100.0
+                i += 1
 
-            reachable_rev = tam * reachable_pct
-            base_rev = reachable_rev * (baseline_share / 100.0)
-            base_gp = base_rev * gm_pct
+    st.divider()
 
-            uplift_pp = 0.0
-            for lever_key in levers_cfg.keys():
-                intensity = float(st.session_state.get(_intensity_key(r, lever_key), 0.0))
-                uplift_pp += _lever_effect_pp(levers_cfg, lever_key, mode, intensity)
+    # 4) Compute
+    import pandas as pd
+    rows_proj, rows_targets = [], []
 
-            projected_share = max(0.0, baseline_share + uplift_pp)
-            proj_rev = reachable_rev * (projected_share / 100.0)
-            proj_gp = proj_rev * gm_pct
+    for r in chosen_regions:
+        m = markets_cfg[r]
+        label = m.get("label", r)
+        currency = m.get("currency", "USD")
+        tam = float(m.get("wearable_tam", 0.0))
+        reachable_pct = float(m.get("reachable_pct", 1.0))
+        baseline_share = float(m.get("baseline_share_pct", 0.0))
+        gm_pct = float(m.get("gross_margin_pct", 0.0))
 
-            rows_proj.append({
+        reachable_rev = tam * reachable_pct
+        base_rev = reachable_rev * (baseline_share / 100.0)
+        base_gp = base_rev * gm_pct
+
+        uplift_pp = 0.0
+        for lever_key in levers_cfg.keys():
+            intensity = float(st.session_state.get(_intensity_key(r, lever_key), 0.0))
+            uplift_pp += _lever_effect_pp(levers_cfg, lever_key, mode, intensity)
+
+        projected_share = max(0.0, baseline_share + uplift_pp)
+        proj_rev = reachable_rev * (projected_share / 100.0)
+        proj_gp = proj_rev * gm_pct
+
+        rows_proj.append({
+            "Region": label,
+            "Currency": currency,
+            "Baseline_share_pct": baseline_share,
+            "Projected_share_pct": projected_share,
+            "Reachable_TAM": reachable_rev,
+            "Baseline_revenue": base_rev,
+            "Projected_revenue": proj_rev,
+            "Incremental_revenue": proj_rev - base_rev,
+            "Baseline_gross_profit": base_gp,
+            "Projected_gross_profit": proj_gp,
+            "Incremental_gross_profit": proj_gp - base_gp,
+            "Assumption_mode": mode,
+        })
+
+        for t in targets:
+            t_share = float(t)
+            t_rev = reachable_rev * (t_share / 100.0)
+            t_gp  = t_rev * gm_pct
+            rows_targets.append({
                 "Region": label,
                 "Currency": currency,
                 "Baseline_share_pct": baseline_share,
-                "Projected_share_pct": projected_share,
+                "Target_share_pct": t_share,
                 "Reachable_TAM": reachable_rev,
                 "Baseline_revenue": base_rev,
-                "Projected_revenue": proj_rev,
-                "Incremental_revenue": proj_rev - base_rev,
-                "Baseline_gross_profit": base_gp,
-                "Projected_gross_profit": proj_gp,
-                "Incremental_gross_profit": proj_gp - base_gp,
-                "Assumption_mode": mode,
+                "Target_revenue": t_rev,
+                "Incremental_revenue": t_rev - base_rev,
+                "Incremental_gross_profit": t_gp - base_gp,
             })
 
-            for t in targets:
-                t_share = float(t)
-                t_rev = reachable_rev * (t_share / 100.0)
-                t_gp  = t_rev * gm_pct
-                rows_targets.append({
-                    "Region": label,
-                    "Currency": currency,
-                    "Baseline_share_pct": baseline_share,
-                    "Target_share_pct": t_share,
-                    "Reachable_TAM": reachable_rev,
-                    "Baseline_revenue": base_rev,
-                    "Target_revenue": t_rev,
-                    "Incremental_revenue": t_rev - base_rev,
-                    "Incremental_gross_profit": t_gp - base_gp,
-                })
+    # 5) Render
+    def _money(x):
+        try:
+            return f"{x:,.0f}"
+        except Exception:
+            return x
 
-        # --- 5) Render ---
-        def _money(x):
-            try:
-                return f"{x:,.0f}"
-            except Exception:
-                return x
+    proj_df = pd.DataFrame(rows_proj)
+    targ_df = pd.DataFrame(rows_targets)
 
-        proj_df = pd.DataFrame(rows_proj)
-        targ_df = pd.DataFrame(rows_targets)
+    if not proj_df.empty:
+        view = proj_df.copy()
+        for c in ["Reachable_TAM","Baseline_revenue","Projected_revenue",
+                  "Incremental_revenue","Baseline_gross_profit",
+                  "Projected_gross_profit","Incremental_gross_profit"]:
+            view[c] = view[c].apply(_money)
+        st.markdown("### Lever-driven Projection")
+        st.dataframe(
+            view[[
+                "Region","Currency","Assumption_mode",
+                "Baseline_share_pct","Projected_share_pct",
+                "Baseline_revenue","Projected_revenue",
+                "Incremental_revenue","Incremental_gross_profit"
+            ]],
+            use_container_width=True,
+        )
 
-        if proj_df.empty and targ_df.empty:
-            st.info("No rows to display yet. Check your regions and lever selections.")
-            st.stop()
+    if not targ_df.empty:
+        view2 = targ_df.copy()
+        for c in ["Reachable_TAM","Baseline_revenue","Target_revenue",
+                  "Incremental_revenue","Incremental_gross_profit"]:
+            view2[c] = view2[c].apply(_money)
+        st.markdown("### TAM & Share Scenarios (independent of levers)")
+        st.dataframe(
+            view2[[
+                "Region","Currency","Baseline_share_pct","Target_share_pct",
+                "Reachable_TAM","Baseline_revenue","Target_revenue",
+                "Incremental_revenue","Incremental_gross_profit"
+            ]],
+            use_container_width=True,
+        )
 
-        if not proj_df.empty:
-            view = proj_df.copy()
-            for c in ["Reachable_TAM","Baseline_revenue","Projected_revenue",
-                      "Incremental_revenue","Baseline_gross_profit",
-                      "Projected_gross_profit","Incremental_gross_profit"]:
-                view[c] = view[c].apply(_money)
-            st.markdown("### Lever-driven Projection")
-            st.dataframe(
-                view[[
-                    "Region","Currency","Assumption_mode",
-                    "Baseline_share_pct","Projected_share_pct",
-                    "Baseline_revenue","Projected_revenue",
-                    "Incremental_revenue","Incremental_gross_profit"
-                ]],
-                use_container_width=True,
+    if not proj_df.empty:
+        st.markdown("### Summary by Region (lever-driven)")
+        for _, row in proj_df.sort_values("Region").iterrows():
+            st.write(
+                f"**{row['Region']}** — Mode: **{row['Assumption_mode']}** · "
+                f"Projected share: **{row['Projected_share_pct']:.2f}%** "
+                f"(baseline {row['Baseline_share_pct']:.2f}%). "
+                f"Incremental revenue ≈ {_money(row['Incremental_revenue'])} {row['Currency']} "
+                f"(GP ≈ {_money(row['Incremental_gross_profit'])})."
             )
-
-        if not targ_df.empty:
-            view2 = targ_df.copy()
-            for c in ["Reachable_TAM","Baseline_revenue","Target_revenue",
-                      "Incremental_revenue","Incremental_gross_profit"]:
-                view2[c] = view2[c].apply(_money)
-            st.markdown("### TAM & Share Scenarios (independent of levers)")
-            st.dataframe(
-                view2[[
-                    "Region","Currency","Baseline_share_pct","Target_share_pct",
-                    "Reachable_TAM","Baseline_revenue","Target_revenue",
-                    "Incremental_revenue","Incremental_gross_profit"
-                ]],
-                use_container_width=True,
-            )
-
-        if not proj_df.empty:
-            st.markdown("### Summary by Region (lever-driven)")
-            for _, row in proj_df.sort_values("Region").iterrows():
-                st.write(
-                    f"**{row['Region']}** — Mode: **{row['Assumption_mode']}** · "
-                    f"Projected share: **{row['Projected_share_pct']:.2f}%** "
-                    f"(baseline {row['Baseline_share_pct']:.2f}%). "
-                    f"Incremental revenue ≈ {_money(row['Incremental_revenue'])} {row['Currency']} "
-                    f"(GP ≈ {_money(row['Incremental_gross_profit'])})."
-                )
-
-    except Exception as e:
-        st.error("Market Expansion tab encountered an error:")
-        st.exception(e)
