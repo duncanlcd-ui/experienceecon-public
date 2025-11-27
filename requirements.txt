@@ -1,3 +1,7 @@
+# Use CPU wheels for PyTorch on Streamlit Cloud
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+# Core UI + data
 streamlit==1.39.0
 pandas>=2.2
 numpy>=1.26
@@ -5,47 +9,9 @@ pyyaml>=6.0
 sqlalchemy>=2.0
 python-docx>=1.1
 scikit-learn>=1.4
-chromadb>=0.5
-# NLP / embeddings
-sentence-transformers==2.6.1
-# If the deploy fails complaining about torch, add the next line too:
-# torch==2.4.1
-# Core
-streamlit>=1.36
-pandas
-pyyaml
-python-docx
 
 # Vector / NLP
-chromadb
+chromadb>=0.5
 faiss-cpu
 sentence-transformers==2.6.1
-# If it later complains about torch wheels, use CPU wheel:
-# --extra-index-url https://download.pytorch.org/whl/cpu
-# torch==2.4.1+cpu
-# Core
-streamlit>=1.36
-pandas
-pyyaml
-python-docx
-
-# Vector / NLP (safe CPU-only)
-chromadb
-faiss-cpu
-sentence-transformers==2.6.1
-# If logs still complain about torch wheels, uncomment the two lines below:
-# --extra-index-url https://download.pytorch.org/whl/cpu
-# torch==2.4.1+cpu
-# Core
-streamlit>=1.36
-pandas
-pyyaml
-python-docx
-
-# Vector / NLP (safe CPU-only)
-chromadb
-faiss-cpu
-sentence-transformers==2.6.1
-# If logs still complain about torch wheels, uncomment the two lines below:
-# --extra-index-url https://download.pytorch.org/whl/cpu
-# torch==2.4.1+cpu
+torch==2.4.1+cpu
