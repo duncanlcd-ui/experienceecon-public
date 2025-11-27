@@ -588,7 +588,8 @@ with tab_journey:
         active_ds = None
 
     if not active_ds:
-        st.stop()
+        st.caption("No datasets yet — other tabs remain available.")
+
 
     # --- Show datasets & quick switch to newest ---
     try:
