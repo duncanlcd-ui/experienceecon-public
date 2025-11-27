@@ -1477,6 +1477,52 @@ if pending:
 # Tab 5 (new): Market Expansion — TAM & Share Uplift (B2B2C)
 # =========================================================
 with tab_market:
+    with tab_market:
+    # --- DEBUG header for Market tab: paste right after `with tab_market:` ---
+    import os, json, glob
+    try:
+        import yaml  # PyYAML
+        _yaml_ok = True
+    except Exception:
+        yaml = None
+        _yaml_ok = False
+
+    def _dbg_len(x):
+        try:
+            return len(x)
+        except Exception:
+            return "n/a"
+
+    def _load_yaml(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return yaml.safe_load(f) if yaml else None
+        except Exception as e:
+            return f"ERROR: {e}"
+
+    markets_raw   = _load_yaml("config/markets.yml")
+    levers_raw    = _load_yaml("config/market_levers.yml")
+    scenarios_raw = _load_yaml("config/market_scenarios.yml")
+
+    # normalize to the dicts your tab expects
+    markets_cfg   = (markets_raw or {}).get("markets", {}) if isinstance(markets_raw, dict) else {}
+    levers_cfg    = (levers_raw or {}).get("levers", {})   if isinstance(levers_raw, dict)  else {}
+    scenarios_cfg = (scenarios_raw or {}).get("scenarios", {}) if isinstance(scenarios_raw, dict) else {}
+
+    st.caption(
+        f"[MarketTab Debug] yaml_ok={_yaml_ok} • "
+        f"markets_type={type(markets_raw).__name__} • levers_type={type(levers_raw).__name__} • "
+        f"counts: markets={_dbg_len(markets_cfg)} levers={_dbg_len(levers_cfg)} scenarios={_dbg_len(scenarios_cfg)}"
+    )
+    try:
+        st.caption("Repo paths present: " + ", ".join(sorted(glob.glob("config/*.y*ml")) or ["(none)"]))
+    except Exception:
+        pass
+    # --- END DEBUG header ---
+
+    # (…keep your existing Tab 5 UI/compute/render code here, but
+    #    do NOT re-load or overwrite markets_cfg/levers_cfg/scenarios_cfg)
+
     try:
         st.subheader("Market Expansion — Wearable TAM & Share Uplift (B2B2C)")
 
