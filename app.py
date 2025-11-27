@@ -1673,11 +1673,13 @@ with tab_market:
                 view[c] = view[c].apply(_money)
             st.markdown("### Lever-driven Projection")
             st.dataframe(
-                view[["Region","Currency","Assumption_mode",
-                      "Baseline_share_pct","Projected_share_pct",
-                      "Baseline_revenue","Projected_revenue",
-                      "Incremental_revenue","Incremental_gross_profit"]],
-                use_container_width=True
+                view[[
+                    "Region","Currency","Assumption_mode",
+                    "Baseline_share_pct","Projected_share_pct",
+                    "Baseline_revenue","Projected_revenue",
+                    "Incremental_revenue","Incremental_gross_profit"
+                ]],
+                use_container_width=True,
             )
 
         if not targ_df.empty:
@@ -1687,5 +1689,24 @@ with tab_market:
                 view2[c] = view2[c].apply(_money)
             st.markdown("### TAM & Share Scenarios (independent of levers)")
             st.dataframe(
-                view2[["Region","Currency","Baseline_share_pct","Target_share_pct",]()]()
+                view2[[
+                    "Region","Currency","Baseline_share_pct","Target_share_pct",
+                    "Reachable_TAM","Baseline_revenue","Target_revenue",
+                    "Incremental_revenue","Incremental_gross_profit"
+                ]],
+                use_container_width=True,
+            )
+
+        # (Optional) Narrative summary
+        if not proj_df.empty:
+            st.markdown("### Summary by Region (lever-driven)")
+            for _, row in proj_df.sort_values("Region").iterrows():
+                st.write(
+                    f"**{row['Region']}** — Mode: **{row['Assumption_mode']}** · "
+                    f"Projected share: **{row['Projected_share_pct']:.2f}%** "
+                    f"(baseline {row['Baseline_share_pct']:.2f}%). "
+                    f"Incremental revenue ≈ {_money(row['Incremental_revenue'])} {row['Currency']} "
+                    f"(GP ≈ {_money(row['Incremental_gross_profit'])})."
+                )
+
 
