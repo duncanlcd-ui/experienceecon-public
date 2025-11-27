@@ -440,6 +440,9 @@ tab_gen, tab_journey, tab_insights, tab_business, tab_market, tab_playbook = st.
     ["Ingest / Generate", "Journey & Explore", "Insights & Actions",
      "Business Case", "Market Expansion", "Playbook"]
 )
+# --- Market tab smoke test ---
+with tab_market:
+    st.write("✅ Market tab body is executing")
 
 # =========================================================
 # Tab 1: Ingest / Generate
