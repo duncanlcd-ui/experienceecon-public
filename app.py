@@ -15,15 +15,14 @@ engine = get_engine()
 # --- NLP
 from pipelines.text_nlp import analyze_transcripts
 
-# --- Demo-mode switch (safe for free hosting) ---
+# ---------- Deployment mode & lightweight defaults ----------
 import os
-EE_DEPLOY_MODE = os.getenv("EE_DEPLOY_MODE", "dev")  # "demo" in the cloud
+EE_DEPLOY_MODE = os.getenv("EE_DEPLOY_MODE", "dev").strip().lower()  # set to "demo" in cloud
 
-# Disable heavyweight bits when in demo:
-ENABLE_VECTORS = False if EE_DEPLOY_MODE == "demo" else True
+# Single source of truth for vector toggle
+ENABLE_VECTORS = (EE_DEPLOY_MODE != "demo")
 
-# If your storage.simple_db.get_engine uses a local SQLite file, you’re fine.
-# If it expects a big local DB, fall back to in-memory in demo:
+# ---------- DB engine (safe fallback in demo) ----------
 try:
     from storage.simple_db import get_engine
     engine = get_engine()
@@ -31,17 +30,15 @@ except Exception:
     from sqlalchemy import create_engine
     engine = create_engine("sqlite:///:memory:", future=True)
 
-
 # ---------- Page setup ----------
 st.set_page_config(page_title="CX Synthetic Insights PoC", layout="wide")
 st.title("CX Synthetic Insights PoC")
 
-# ==== VECTOR INDEX (OPTIONAL & LAZY) ====
-ENABLE_VECTORS = True  # flip to False if you need to safe-boot
-
-# Only import vector deps if enabled; never block other tabs
+# =========================================================
+# VECTOR INDEX (OPTIONAL & LAZY — NEVER BLOCK OTHER TABS)
+# =========================================================
 try:
-    import storage.vector_store as vstore  # your module
+    import storage.vector_store as vstore
     _VSTORE_IMPORT_OK = True
 except Exception as e:
     _VSTORE_IMPORT_OK = False
@@ -57,11 +54,11 @@ if ENABLE_VECTORS and _VSTORE_IMPORT_OK:
         st.sidebar.warning(f"Vector store unavailable: {e}")
         col = None
 else:
-    if not ENABLE_VECTORS:
-        st.sidebar.info("Vector features are turned off for this session.")
+    st.sidebar.info("Vector features are turned off for this session." if not ENABLE_VECTORS else
+                    "Vector module import failed; continuing without vectors.")
 
 def add_vector_index(df, dataset_id: str):
-    """Index transcripts for evidence snippets (RAG). Call AFTER NLP, and only if collection exists."""
+    """Index transcripts for evidence snippets (RAG). Call AFTER NLP, only if collection exists."""
     if col is None:
         st.caption("Vector index: disabled / unavailable.")
         return
@@ -70,7 +67,8 @@ def add_vector_index(df, dataset_id: str):
         st.caption(f"Vector index: added ~{n} chunks")
     except Exception as e:
         st.warning(f"Vector indexing skipped: {e}")
-# ==== END VECTOR INDEX ====
+# =========================================================
+
 
 
 
