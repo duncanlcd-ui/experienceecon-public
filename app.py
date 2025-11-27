@@ -1477,7 +1477,6 @@ if pending:
 # Tab 5 (new): Market Expansion — TAM & Share Uplift (B2B2C)
 # =========================================================
 with tab_market:
-    with tab_market:
     # --- DEBUG header for Market tab: paste right after `with tab_market:` ---
     import os, json, glob
     try:
