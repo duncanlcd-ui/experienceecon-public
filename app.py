@@ -1480,7 +1480,7 @@ with tab_market:
     try:
         st.subheader("Market Expansion — Wearable TAM & Share Uplift (B2B2C)")
 
-        # --- small, local helpers (avoids NameError if not defined elsewhere) ---
+        # --- small, local helpers (keeps this tab self-contained) ---
         import os, json
         try:
             import yaml  # PyYAML
@@ -1531,14 +1531,13 @@ with tab_market:
             else:
                 base = (lo + hi) / 2.0
             intensity = max(0.0, min(1.0, float(intensity_0_1)))
-            return base * intensity  # pp
+            return base * intensity  # percentage points
 
         # --- load configs ---
         markets_cfg   = load_markets_yaml("config/markets.yml")
         levers_cfg    = load_market_levers_yaml("config/market_levers.yml")
         scenarios_cfg = load_market_scenarios_yaml("config/market_scenarios.yml")
 
-        # Quick debug row so you know what loaded on Cloud
         st.caption(f"Loaded: markets={len(markets_cfg)} | levers={len(levers_cfg)} | scenarios={len(scenarios_cfg)}")
 
         if not markets_cfg:
@@ -1556,7 +1555,7 @@ with tab_market:
 
         targets = sorted({int(s1), int(s2)})
 
-        # --- 2) Regions & (optional) scenario preset ---
+        # --- 2) Regions & scenario preset ---
         region_keys = list(markets_cfg.keys())
         chosen_regions = st.multiselect("Regions to model", options=region_keys, default=region_keys, key="mx_regions_sel")
 
@@ -1569,7 +1568,6 @@ with tab_market:
                 for lever_key, val in (r_def.get("lever_intensity") or {}).items():
                     st.session_state[_intensity_key(r_key, lever_key)] = float(val)
 
-        # Early empty-state guard
         if not chosen_regions:
             st.warning("Select at least one region to run the model.")
             st.stop()
@@ -1655,8 +1653,10 @@ with tab_market:
 
         # --- 5) Render ---
         def _money(x):
-            try: return f"{x:,.0f}"
-            except: return x
+            try:
+                return f"{x:,.0f}"
+            except Exception:
+                return x
 
         proj_df = pd.DataFrame(rows_proj)
         targ_df = pd.DataFrame(rows_targets)
@@ -1697,7 +1697,6 @@ with tab_market:
                 use_container_width=True,
             )
 
-        # (Optional) Narrative summary
         if not proj_df.empty:
             st.markdown("### Summary by Region (lever-driven)")
             for _, row in proj_df.sort_values("Region").iterrows():
@@ -1709,4 +1708,6 @@ with tab_market:
                     f"(GP ≈ {_money(row['Incremental_gross_profit'])})."
                 )
 
-
+    except Exception as e:
+        st.error("Market Expansion tab encountered an error:")
+        st.exception(e)
